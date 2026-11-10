@@ -55,6 +55,25 @@ class LocalStorage:
             raise
         return media_id, dest
 
+    def folder(self, media_id: str) -> Path:
+        folder = self._dir(media_id)
+        if not folder.is_dir():
+            raise MediaNotFound(media_id)
+        return folder
+
+    def source_path(self, media_id: str) -> Path:
+        matches = sorted(self.folder(media_id).glob("source.*"))
+        if not matches:
+            raise MediaNotFound(media_id)
+        return matches[0]
+
+    def save_json(self, media_id: str, name: str, data: dict) -> None:
+        (self.folder(media_id) / name).write_text(json.dumps(data, indent=2))
+
+    def load_json(self, media_id: str, name: str) -> dict | None:
+        path = self.folder(media_id) / name
+        return json.loads(path.read_text()) if path.is_file() else None
+
     def save_info(self, media_id: str, info: MediaInfo, original_name: str) -> None:
         payload = {"media_id": media_id, "original_name": original_name, "info": info.model_dump()}
         (self._dir(media_id) / "info.json").write_text(json.dumps(payload, indent=2))

@@ -24,6 +24,66 @@ export type MediaSummary = {
   };
 };
 
+export type Aspect = "source" | "9:16" | "16:9" | "1:1" | "4:5";
+
+export type EditRequest = {
+  aspect: Aspect;
+  remove_silences: boolean;
+  punch_ins: boolean;
+};
+
+export type Segment = { src_in: number; src_out: number; zoom: number; reason: string };
+
+export type PlanResponse = {
+  plan: { media_id: string; brain: string; summary: string; segments: Segment[] };
+  validation: { ok: boolean; errors: string[]; warnings: string[] };
+  source_duration_s: number;
+};
+
+export type Job = {
+  job_id: string;
+  media_id: string;
+  status: "queued" | "running" | "done" | "failed";
+  progress: number;
+  message: string;
+  error: string | null;
+  output: string | null;
+};
+
+async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    });
+  } catch {
+    throw new Error(`Cannot reach the backend at ${API_URL}. Is it running?`);
+  }
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    const detail = body?.detail;
+    const msg =
+      typeof detail === "string"
+        ? detail
+        : detail?.errors
+          ? `${detail.message}: ${detail.errors.join("; ")}`
+          : `Request failed (HTTP ${res.status})`;
+    throw new Error(msg);
+  }
+  return body as T;
+}
+
+export const planEdit = (mediaId: string, req: EditRequest) =>
+  call<PlanResponse>(`/api/media/${mediaId}/plan`, { method: "POST", body: JSON.stringify(req) });
+
+export const startRender = (mediaId: string, req: EditRequest) =>
+  call<Job>(`/api/media/${mediaId}/render`, { method: "POST", body: JSON.stringify({ request: req }) });
+
+export const getJob = (jobId: string) => call<Job>(`/api/jobs/${jobId}`);
+
+export const exportUrl = (job: Job) => `${API_URL}/api/media/${job.media_id}/exports/${job.output}`;
+
 /** Upload a video with progress reporting. Uses XHR because fetch has no upload progress. */
 export function uploadMedia(file: File, onProgress: (pct: number) => void): Promise<MediaSummary> {
   return new Promise((resolve, reject) => {

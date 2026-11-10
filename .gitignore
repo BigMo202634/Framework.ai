@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Node
+node_modules/
+.next/
+out/
+
+# Local data and secrets
+.env
+.env.local
+backend/storage/
+*.mp4
+*.mov
+!backend/tests/fixtures/*.mp4

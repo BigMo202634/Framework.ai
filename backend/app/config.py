@@ -1,0 +1,28 @@
+"""Application settings, read from environment variables (prefix FRAMEWORK_) or backend/.env."""
+
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="FRAMEWORK_", env_file=".env", extra="ignore")
+
+    storage_dir: Path = Path("./storage")
+    max_upload_mb: int = 2048
+    ffprobe_path: str = "ffprobe"
+    ffmpeg_path: str = "ffmpeg"
+    cors_origins: list[str] = ["http://localhost:3000"]
+
+    # Containers we accept on import. Checked by extension first, then confirmed by ffprobe.
+    allowed_extensions: set[str] = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".mxf"}
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return self.max_upload_mb * 1024 * 1024
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

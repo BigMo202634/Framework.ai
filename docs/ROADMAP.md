@@ -9,7 +9,7 @@
 
 ## Next
 - [ ] Milestone 4: animated ASS captions with word highlighting
-- [ ] Milestone 5: punch-in zooms and 9:16 reframing
+- [ ] Milestone 5: face-tracked reframing and smarter punch-ins (on key words, not every cut)
 - [ ] Milestone 6: music bed with ducking under speech
 - [ ] Milestone 7: Claude Editor Brain behind the provider adapter
 - [ ] Milestone 8: QA checks (caption sync, meaning preserved, black frames, loudness)

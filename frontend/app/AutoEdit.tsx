@@ -24,11 +24,19 @@ const ASPECTS: { value: Aspect; label: string }[] = [
 
 type Msg = { from: "you" | "editor"; text: string };
 
+const KIND_LABEL: Record<string, string> = {
+  filler: "Filler",
+  stutter: "Stutter",
+  retake: "False start",
+  repetition: "Said twice",
+  off_message: "Off message",
+};
+
 const dur = (p: Plan) => p.segments.reduce((t, s) => t + s.src_out - s.src_in, 0);
 const fmt = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 
 export default function AutoEdit({ media }: { media: MediaSummary }) {
-  const [req, setReq] = useState<EditRequest>({ aspect: "9:16", remove_silences: true, punch_ins: true });
+  const [req, setReq] = useState<EditRequest>({ aspect: "9:16", remove_silences: true, punch_ins: true, creative_cuts: true });
   const [plan, setPlan] = useState<Plan | null>(null);
   const [history, setHistory] = useState<Plan[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -155,11 +163,20 @@ export default function AutoEdit({ media }: { media: MediaSummary }) {
             onChange={(e) => setReq({ ...req, punch_ins: e.target.checked })} />
           Punch-ins
         </label>
+        <label className="flex items-center gap-2" title="Reads what you said and cuts um, uh, em, stutters, false starts and lines said twice">
+          <input type="checkbox" checked={req.creative_cuts} disabled={busy}
+            onChange={(e) => setReq({ ...req, creative_cuts: e.target.checked })} />
+          Cut fillers &amp; repeats
+        </label>
         <button onClick={makePlan} disabled={busy}
           className="rounded-md border border-neutral-600 px-4 py-2 hover:bg-neutral-800 disabled:opacity-50">
           {plan ? "Start over" : "Create edit"}
         </button>
       </div>
+
+      {busy && !plan && req.creative_cuts && (
+        <p className="mt-4 text-sm text-neutral-400">Listening to your video and reading the transcript. The first time takes a minute or two.</p>
+      )}
 
       {error && <p className="mt-4 rounded-lg bg-red-950 px-4 py-3 text-sm text-red-200">{error}</p>}
 
@@ -191,6 +208,26 @@ export default function AutoEdit({ media }: { media: MediaSummary }) {
             {warnings.map((w) => <p key={w} className="mt-1 text-xs text-amber-300">⚠ {w}</p>)}
           </div>
 
+          {/* Creative director: the message it heard and every cut it made, so nothing disappears silently. */}
+          {(plan.message || plan.removed?.length > 0) && (
+            <details className="mt-6 rounded-lg border border-neutral-800 px-4 py-3 text-sm" open>
+              <summary className="cursor-pointer font-medium">
+                What the director cut ({plan.removed.length})
+              </summary>
+              {plan.message && <p className="mt-2 text-neutral-300">Message: {plan.message}</p>}
+              <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto">
+                {plan.removed.map((r, i) => (
+                  <li key={i} className="flex gap-3">
+                    <span className="w-14 shrink-0 tabular-nums text-neutral-500">{fmt(r.start)}</span>
+                    <span className="w-24 shrink-0 text-neutral-400">{KIND_LABEL[r.kind] ?? r.kind}</span>
+                    <span className="text-neutral-300 line-through decoration-red-400/70">{r.text}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-neutral-500">Times are from your original video. Say &quot;keep the ums&quot; in the chat to put them all back.</p>
+            </details>
+          )}
+
           {/* Timeline chat */}
           <div className="mt-6 rounded-lg border border-neutral-800">
             <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-2 text-sm">
@@ -216,7 +253,7 @@ export default function AutoEdit({ media }: { media: MediaSummary }) {
             <form className="flex gap-2 border-t border-neutral-800 p-3"
               onSubmit={(e) => { e.preventDefault(); chat(); }}>
               <input value={draft} onChange={(e) => setDraft(e.target.value)} disabled={busy}
-                placeholder='e.g. "cut 0:12 to 0:18", "zoom in from 30 to 35", "make it 16:9"'
+                placeholder='e.g. "cut 0:12 to 0:18", "zoom in from 30 to 35", "remove the ums"'
                 className="flex-1 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-neutral-500" />
               <button type="submit" disabled={busy || !draft.trim()}
                 className="rounded-md border border-neutral-600 px-4 py-2 text-sm hover:bg-neutral-800 disabled:opacity-50">Send</button>

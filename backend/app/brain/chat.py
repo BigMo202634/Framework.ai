@@ -95,12 +95,18 @@ class RuleChat:
         elif re.search(r"(keep|don.t (cut|remove)) (the )?(silence|pause)s?|no silence (removal|cutting)", text):
             cmds.append(Command(op="replan", remove_silences=False))
 
+        filler = r"(um+s?|uh+s?|ems?|erm|fillers?|stutter\w*|repeat\w*|retakes?|false starts?)"
+        if re.search(rf"(keep|leave|put back|bring back|restore|don.t (cut|remove)) (the |all )?(\w+ )?{filler}", text):
+            cmds.append(Command(op="replan", creative_cuts=False))
+        elif re.search(rf"(cut|remove|clean|delete|take out|get rid of)\b.*{filler}", text):
+            cmds.append(Command(op="replan", creative_cuts=True))
+
         if cmds:
             return ChatResult(reply="On it.", commands=cmds)
         return ChatResult(reply=(
             "I didn't catch that. In free mode I understand things like: \"cut 0:12 to 0:18\", "
             "\"remove the first 3 seconds\", \"zoom in from 10s to 15s\", \"no punch-ins\", "
-            "\"make it 16:9\", \"make it tighter\" or \"keep more natural pauses\". "
+            "\"make it 16:9\", \"make it tighter\", \"keep more natural pauses\" or \"remove the ums\". "
             "Add an Anthropic API key to talk to the Claude editor in your own words."
         ), commands=[])
 
@@ -117,7 +123,9 @@ Commands (all times are seconds on the EDITED timeline the user sees, not the or
 - punch_ins: enabled true/false, alternating punch-ins on every other cut across the whole video
 - replan: re-cut the pacing from the original audio. padding_s is breathing room kept around speech
   (0.05 tight to 0.3 relaxed), keep_pauses_under_s keeps pauses shorter than this (0.1 tight to 0.8
-  natural), remove_silences false keeps everything. Replan resets earlier manual cuts, so mention that.
+  natural), remove_silences false keeps everything. creative_cuts true cuts fillers (um, uh), stutters,
+  retakes and repeated lines found in the transcript; false puts them back. Replan resets earlier
+  manual cuts, so mention that.
 
 Rules: only use the commands above. Leave unused fields null. If the request needs something not
 available yet (captions, music, colour, b-roll, transitions), return no commands and say plainly it's
@@ -141,9 +149,10 @@ _SCHEMA = {
                     "padding_s": {"type": ["number", "null"]},
                     "keep_pauses_under_s": {"type": ["number", "null"]},
                     "remove_silences": {"type": ["boolean", "null"]},
+                    "creative_cuts": {"type": ["boolean", "null"]},
                 },
                 "required": ["op", "aspect", "start", "end", "zoom", "enabled", "padding_s",
-                             "keep_pauses_under_s", "remove_silences"],
+                             "keep_pauses_under_s", "remove_silences", "creative_cuts"],
                 "additionalProperties": False,
             },
         },

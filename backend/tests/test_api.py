@@ -125,3 +125,43 @@ def test_chat_edits_plan(client, tmp_path):
     r = client.post(f"/api/media/{media_id}/chat", json={"message": "cut 0 to 500", "plan": plan, "mode": "rules"})
     assert "Couldn't do that" in r.json()["reply"]
     assert r.json()["plan"] == plan
+
+
+def test_creative_cuts_use_the_transcript(client, tmp_path, monkeypatch):
+    """With a (fake) transcript, the plan cuts the filler and lists it; the chat can put it back."""
+    import app.main as main
+    from app.engine.transcribe import Transcript, Word
+    from tests.conftest import make_talk_video
+
+    # Tone plays 0-2 s, 3-5 s, 6-8 s. Pretend the middle of the first one is an "um".
+    fake = Transcript(model="test", language="en", words=[
+        Word(i=0, start=0.1, end=0.6, text="Hello,"),
+        Word(i=1, start=0.8, end=1.2, text="um,"),
+        Word(i=2, start=1.4, end=1.9, text="everyone."),
+        Word(i=3, start=3.1, end=4.9, text="Welcome."),
+    ])
+    calls = []
+    monkeypatch.setattr(main, "transcribe", lambda *a, **k: calls.append(k) or fake)
+    client.app.dependency_overrides[main.get_settings]().whisper_model = "test"
+
+    video = make_talk_video(tmp_path / "talk.mp4", width=640, height=360)
+    with video.open("rb") as f:
+        media_id = client.post("/api/media", files={"file": ("talk.mp4", f, "video/mp4")}).json()["media_id"]
+
+    r = client.post(f"/api/media/{media_id}/plan", json={"aspect": "9:16", "creative_cuts": True})
+    assert r.status_code == 200, r.text
+    plan = r.json()["plan"]
+    assert [p["text"] for p in plan["removed"]] == ["um,"]
+    assert plan["brain"] == "mock+rules-director"
+    # The cut lands between "Hello," and "everyone." and nothing of either word is lost.
+    first, second = plan["segments"][0], plan["segments"][1]
+    assert 0.6 < first["src_out"] < 0.8 and 1.2 < second["src_in"] < 1.4
+    assert len(calls) == 1 and calls[0]["speech"]  # phrase-by-phrase transcription
+
+    r = client.post(f"/api/media/{media_id}/plan", json={"aspect": "9:16", "creative_cuts": False})
+    assert r.json()["plan"]["removed"] == []
+    assert len(calls) == 1  # transcript is cached
+
+    r = client.post(f"/api/media/{media_id}/chat", json={"message": "keep the ums", "plan": plan, "mode": "rules"})
+    body = r.json()
+    assert body["changes"] and body["plan"]["removed"] == []

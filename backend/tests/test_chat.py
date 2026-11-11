@@ -62,6 +62,9 @@ def test_aspect_change_resets_size():
     ("make it 16:9 for youtube", "set_aspect", lambda c: c.aspect == "16:9"),
     ("make it tighter and punchy", "replan", lambda c: c.keep_pauses_under_s == 0.1),
     ("too choppy, keep more natural pauses", "replan", lambda c: c.keep_pauses_under_s == 0.6),
+    ("remove the ums and stutters", "replan", lambda c: c.creative_cuts is True),
+    ("keep the ums please", "replan", lambda c: c.creative_cuts is False),
+    ("put back the repeats", "replan", lambda c: c.creative_cuts is False),
 ])
 def test_rule_chat_understands(msg, op, check):
     result = RuleChat().interpret(msg, plan3())

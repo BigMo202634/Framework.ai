@@ -16,12 +16,14 @@ from pydantic import BaseModel
 
 from app.brain.base import EditRequest
 from app.brain.chat import get_chat
+from app.brain.director import CreativeCuts, Direction, creative_cuts, get_director
 from app.brain.mock import MockEditorBrain
 from app.config import Settings, get_settings
 from app.engine.audio import AudioAnalysis, AudioError, analyze
 from app.engine.commands import Command, CommandError, apply
 from app.engine.plan import EditPlan
 from app.engine.render import render
+from app.engine.transcribe import Transcript, TranscribeError, transcribe
 from app.engine.validate import ValidationResult, validate_plan
 from app.jobs import Job, JobStore
 from app.media.probe import MediaInfo, ProbeError, probe
@@ -30,7 +32,7 @@ from app.media.storage import LocalStorage, MediaNotFound, UploadTooLarge
 log = logging.getLogger("framework")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title="FRAMEWORK AI", version="0.2.0")
+app = FastAPI(title="FRAMEWORK AI", version="0.4.0")
 
 _settings = get_settings()
 app.add_middleware(
@@ -181,6 +183,61 @@ def analyze_media(media_id: str, settings: Settings = Depends(get_settings),
     return result
 
 
+def _transcript(storage: LocalStorage, settings: Settings, media_id: str, info: MediaInfo) -> Transcript | None:
+    """Word-level transcript, cached in the media folder after the first run (it takes ~1 min)."""
+    if info.audio is None or not settings.whisper_model:
+        return None
+    cached = storage.load_json(media_id, "transcript.json")
+    if cached and cached.get("model") == settings.whisper_model and cached.get("method") == "phrases":
+        return Transcript(**cached)
+    audio = _analysis(storage, settings, media_id, info)
+    result = transcribe(storage.source_path(media_id), settings.ffmpeg_path, settings.whisper_model,
+                        speech=audio.speech if audio else None)
+    storage.save_json(media_id, "transcript.json", result.model_dump())
+    return result
+
+
+def _creative(storage: LocalStorage, settings: Settings, media_id: str, info: MediaInfo,
+              warnings: list[str], prefer: str | None = None) -> CreativeCuts | None:
+    """Transcript + creative director decisions. Cached per director so a replan costs nothing."""
+    try:
+        transcript = _transcript(storage, settings, media_id, info)
+    except TranscribeError as exc:
+        log.warning("Transcription failed: %s", exc)
+        warnings.append(f"Couldn't transcribe, so fillers and repeats were not cut: {exc}")
+        return None
+    if transcript is None:
+        return None
+    director = get_director(prefer, settings.anthropic_api_key)
+    name = f"direction_{director.name}.json"
+    cached = storage.load_json(media_id, name)
+    if cached and cached.get("words") == len(transcript.words):
+        direction = Direction(**cached["direction"])
+    else:
+        try:
+            direction = director.direct(transcript)
+        except Exception as exc:  # Claude unreachable: the free rules still do the basics
+            log.warning("Director failed, using rules: %s", exc)
+            warnings.append("The AI director was unavailable, so only the basic rules were used.")
+            direction = get_director("rules").direct(transcript)
+        storage.save_json(media_id, name, {"words": len(transcript.words), "direction": direction.model_dump()})
+    return creative_cuts(transcript, direction, info.duration_s)
+
+
+@app.get("/api/media/{media_id}/transcript", response_model=Transcript)
+def get_transcript(media_id: str, settings: Settings = Depends(get_settings),
+                   storage: LocalStorage = Depends(get_storage)) -> Transcript:
+    """Word-by-word transcript with timings (made on first request, then cached)."""
+    info = _load_info(storage, media_id)
+    try:
+        result = _transcript(storage, settings, media_id, info)
+    except TranscribeError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if result is None:
+        raise HTTPException(422, "This video has no audio track to transcribe")
+    return result
+
+
 class PlanResponse(BaseModel):
     plan: EditPlan
     validation: ValidationResult
@@ -194,8 +251,11 @@ def plan_edit(media_id: str, request: EditRequest = EditRequest(),
     """Ask the Editor Brain for an edit plan and validate it. Nothing is rendered."""
     info = _load_info(storage, media_id)
     audio = _analysis(storage, settings, media_id, info)
-    plan = brain.plan(media_id, info, audio, request)
+    warnings: list[str] = []
+    creative = _creative(storage, settings, media_id, info, warnings) if request.creative_cuts else None
+    plan = brain.plan(media_id, info, audio, request, creative)
     validation = validate_plan(plan, info, media_id)
+    validation.warnings = warnings + validation.warnings
     storage.save_json(media_id, "plan.json", plan.model_dump())
     return PlanResponse(plan=plan, validation=validation, source_duration_s=info.duration_s)
 
@@ -211,7 +271,10 @@ def render_edit(media_id: str, body: RenderRequest = RenderRequest(),
                 jobs: JobStore = Depends(get_jobs), brain: MockEditorBrain = Depends(get_brain)) -> Job:
     """Validate a plan and render it in the background. Poll GET /api/jobs/{job_id} for progress."""
     info = _load_info(storage, media_id)
-    plan = body.plan or brain.plan(media_id, info, _analysis(storage, settings, media_id, info), body.request)
+    plan = body.plan
+    if plan is None:
+        creative = _creative(storage, settings, media_id, info, []) if body.request.creative_cuts else None
+        plan = brain.plan(media_id, info, _analysis(storage, settings, media_id, info), body.request, creative)
     validation = validate_plan(plan, info, media_id)
     if not validation.ok:
         raise HTTPException(422, {"message": "The edit plan is not valid", "errors": validation.errors})
@@ -283,15 +346,19 @@ def chat_edit(media_id: str, body: ChatRequest, settings: Settings = Depends(get
         log.warning("Chat failed: %s", exc)
         raise HTTPException(502, f"The AI editor is unavailable right now: {exc}") from exc
 
-    def replan(padding_s, keep_pauses_under_s, remove_silences, punch_ins):
-        req = EditRequest(aspect=body.plan.output.aspect, punch_ins=punch_ins)
-        if padding_s is not None:
-            req.padding_s = max(0.0, min(1.0, padding_s))
-        if keep_pauses_under_s is not None:
-            req.keep_pauses_under_s = max(0.0, min(3.0, keep_pauses_under_s))
-        if remove_silences is not None:
-            req.remove_silences = remove_silences
-        return brain.plan(media_id, info, _analysis(storage, settings, media_id, info), req)
+    def replan(cmd: Command, punch_ins: bool):
+        # Keep the creative cuts the current plan has unless the command changes that.
+        had_creative = bool(body.plan.removed)
+        req = EditRequest(aspect=body.plan.output.aspect, punch_ins=punch_ins,
+                          creative_cuts=had_creative if cmd.creative_cuts is None else cmd.creative_cuts)
+        if cmd.padding_s is not None:
+            req.padding_s = max(0.0, min(1.0, cmd.padding_s))
+        if cmd.keep_pauses_under_s is not None:
+            req.keep_pauses_under_s = max(0.0, min(3.0, cmd.keep_pauses_under_s))
+        if cmd.remove_silences is not None:
+            req.remove_silences = cmd.remove_silences
+        creative = _creative(storage, settings, media_id, info, []) if req.creative_cuts else None
+        return brain.plan(media_id, info, _analysis(storage, settings, media_id, info), req, creative)
 
     plan, changes, problems = body.plan, [], []
     for cmd in result.commands:
@@ -301,7 +368,7 @@ def chat_edit(media_id: str, body: ChatRequest, settings: Settings = Depends(get
         except CommandError as exc:
             problems.append(str(exc))
     if changes:
-        plan = plan.model_copy(update={"brain": f"{plan.brain.split('+')[0]}+chat"})
+        plan = plan.model_copy(update={"brain": f"{plan.brain.removesuffix('+chat')}+chat"})
     validation = validate_plan(plan, info, media_id)
     if not validation.ok:  # never hand back a plan the renderer would reject
         problems += validation.errors

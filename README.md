@@ -55,7 +55,13 @@ Your files are stored in `backend/storage/<media id>/` (source, analysis, plans 
 
 API docs are generated automatically at http://localhost:8000/docs.
 
-## API (v0.3)
+### Creative director (cut the ums and repeats)
+
+"Cut fillers & repeats" is on by default. The first time you create an edit for a video, the backend transcribes it word by word with Whisper (free, on your own computer; the model downloads once, about 480 MB, and a 5-minute video takes 1 to 2 minutes). It then cuts "um", "uh", "em", stutters ("I, I knew"), false starts and lines said twice, and shows every cut under **What the director cut**. Repeats used for rhythm ("I tested the live, I tested the network, I tested everything") are kept.
+
+With an API key the Claude director also works out your message and trims parts that don't serve it, but never jokes, suspense, reactions or lines that build momentum. Say "keep the ums" or "remove the ums" in the chat to switch it. Set `FRAMEWORK_WHISPER_MODEL=medium` in `backend/.env` for a bigger model, or leave it empty to turn transcription off.
+
+## API (v0.4)
 
 | Method | Path | What it does |
 |---|---|---|
@@ -63,6 +69,7 @@ API docs are generated automatically at http://localhost:8000/docs.
 | POST | `/api/media` | Upload and inspect a video |
 | GET / DELETE | `/api/media/{id}` | Read or delete an import |
 | POST | `/api/media/{id}/analyze` | Loudness and silence detection |
+| GET | `/api/media/{id}/transcript` | Word-by-word transcript with timings |
 | POST | `/api/media/{id}/plan` | Get a validated edit plan (nothing rendered) |
 | POST | `/api/media/{id}/render` | Render a plan in the background, returns a job |
 | GET | `/api/jobs/{job_id}` | Job status and progress |

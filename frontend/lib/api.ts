@@ -30,16 +30,27 @@ export type EditRequest = {
   aspect: Aspect;
   remove_silences: boolean;
   punch_ins: boolean;
+  creative_cuts: boolean;
 };
 
 export type Segment = { src_in: number; src_out: number; zoom: number; reason: string };
+
+export type RemovedPart = {
+  start: number;
+  end: number;
+  kind: "filler" | "stutter" | "retake" | "repetition" | "off_message";
+  text: string;
+  reason: string;
+};
 
 export type Plan = {
   version: string;
   media_id: string;
   brain: string;
   summary: string;
+  message: string;
   segments: Segment[];
+  removed: RemovedPart[];
   output: { aspect: Aspect; width: number | null; height: number | null; fps: number | null; crf: number; audio_bitrate_k: number };
 };
 

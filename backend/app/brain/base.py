@@ -15,6 +15,8 @@ from app.media.probe import MediaInfo
 class EditRequest(BaseModel):
     aspect: Aspect = "9:16"
     remove_silences: bool = True
+    # Creative director: cut fillers (um, uh, em), stutters, retakes and repeated lines from the transcript.
+    creative_cuts: bool = True
     punch_ins: bool = True
     # Silence kept around each spoken part so words aren't clipped.
     padding_s: float = 0.12
@@ -27,4 +29,4 @@ class EditorBrain(Protocol):
     name: str
 
     def plan(self, media_id: str, info: MediaInfo, audio: AudioAnalysis | None,
-             request: EditRequest) -> EditPlan: ...
+             request: EditRequest, creative=None) -> EditPlan: ...

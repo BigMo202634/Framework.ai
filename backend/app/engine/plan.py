@@ -48,12 +48,23 @@ class OutputSettings(BaseModel):
     audio_bitrate_k: int = 192
 
 
+class RemovedPart(BaseModel):
+    """Something the creative director cut, in source time, so the user can see and question it."""
+    start: float
+    end: float
+    kind: str  # filler | stutter | retake | repetition | off_message
+    text: str
+    reason: str = ""
+
+
 class EditPlan(BaseModel):
     version: Literal["0.1"] = "0.1"
     media_id: str
     brain: str = "mock"
     summary: str = ""
+    message: str = ""  # what the creator is trying to say, as the director understood it
     segments: list[Segment]
+    removed: list[RemovedPart] = []
     output: OutputSettings = OutputSettings()
 
     @property

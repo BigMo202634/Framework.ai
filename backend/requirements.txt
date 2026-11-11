@@ -3,8 +3,9 @@ uvicorn[standard]==0.34.0
 python-multipart==0.0.20
 pydantic-settings==2.7.1
 anthropic==2.8.0  # Claude chat/brain; only called when ANTHROPIC_API_KEY is set
+faster-whisper==1.2.1  # transcription; downloads the Whisper model (~480 MB) on first use
+numpy==2.5.4
 
 # dev / tests
 pytest==8.3.4
-numpy==2.5.4  # sync test analysis
 httpx==0.28.1

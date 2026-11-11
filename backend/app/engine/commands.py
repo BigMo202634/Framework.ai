@@ -28,6 +28,7 @@ class Command(BaseModel):
     padding_s: float | None = None
     keep_pauses_under_s: float | None = None
     remove_silences: bool | None = None
+    creative_cuts: bool | None = None  # cut fillers, stutters, retakes and repeats from the transcript
 
 
 class CommandError(ValueError):
@@ -79,7 +80,7 @@ def _range(plan: EditPlan, cmd: Command) -> tuple[float, float]:
 def apply(plan: EditPlan, cmd: Command, replan=None) -> tuple[EditPlan, str]:
     """Apply one command and return (new plan, plain-English description of what changed).
 
-    `replan` is a callback(padding_s, keep_pauses_under_s, remove_silences, punch_ins) -> EditPlan,
+    `replan` is a callback(cmd, punch_ins) -> EditPlan,
     used for pacing changes that need the original audio analysis.
     """
     plan = plan.model_copy(deep=True)
@@ -126,9 +127,13 @@ def apply(plan: EditPlan, cmd: Command, replan=None) -> tuple[EditPlan, str]:
         if replan is None:
             raise CommandError("Pacing changes need the audio analysis")
         punch = any(s.zoom > 1.0 for s in plan.segments)
-        new = replan(cmd.padding_s, cmd.keep_pauses_under_s, cmd.remove_silences, punch)
+        new = replan(cmd, punch)
         new.output = plan.output
-        return new, (f"Re-cut the pacing: {len(new.segments)} parts, {new.duration:.1f}s long "
+        what = "Re-cut the pacing"
+        if cmd.creative_cuts is not None:
+            what = ("Cut the fillers, stutters and retakes" if cmd.creative_cuts
+                    else "Put the fillers and repeats back")
+        return new, (f"{what}: {len(new.segments)} parts, {new.duration:.1f}s long "
                      "(earlier manual cuts were reset)")
 
     raise CommandError(f"Unknown command {cmd.op}")

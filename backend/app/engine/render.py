@@ -49,19 +49,35 @@ def crop_box(src_w: int, src_h: int, out_w: int, out_h: int, seg: Segment) -> tu
 
 def segment_command(seg: Segment, info: MediaInfo, out: OutputSettings, src: Path, dst: Path,
                     ffmpeg: str = "ffmpeg") -> list[str]:
+    """FFmpeg command that renders one segment with video and audio starting at the same instant.
+
+    Sync rules (each one fixes a real drift we measured with a flash-and-beep test clip):
+    - The cut point is snapped to the source's frame grid, so the first video frame and the first
+      audio sample come from the same moment.
+    - We seek to a point before the cut, then trim inside the filter graph and reset timestamps to
+      zero for BOTH streams. Seeking straight to the cut let video start up to a frame late while
+      audio started on time, and that gap added up at every cut (about 30 ms per cut).
+    - The video gets an exact number of frames and the audio exactly that many frames' worth of
+      samples, so the two never differ in length.
+    """
     cw, ch, x, y = crop_box(info.display_width, info.display_height, out.width, out.height, seg)
-    vf = (f"crop={cw}:{ch}:{x}:{y},scale={out.width}:{out.height}:flags=lanczos,setsar=1,"
-          f"fps={out.fps},format=yuv420p")
-    # Snap to whole frames so video and audio lengths match exactly; otherwise tiny
-    # rounding differences add up over dozens of cuts and lips drift out of sync.
+    src_fps = info.video.fps if info.video and info.video.fps > 0 else out.fps
+    start = round(seg.src_in * src_fps) / src_fps
     frames = max(1, round(seg.duration * out.fps))
     d = frames / out.fps
-    cmd = [ffmpeg, "-y", "-v", "error", "-ss", f"{seg.src_in:.3f}", "-t", f"{d + 0.1:.3f}",
+    pre = max(0.0, start - 1.0)          # fast input seek to just before the cut
+    rel = start - pre                    # exact cut point after that seek
+    # Half a frame of tolerance so the frame AT the cut is kept even when timestamp rounding puts
+    # it a hair before the cut point (seen with 29.97 fps footage).
+    vf = (f"trim=start={max(0.0, rel - 0.5 / src_fps):.6f},setpts=PTS-STARTPTS,"
+          f"crop={cw}:{ch}:{x}:{y},scale={out.width}:{out.height}:flags=lanczos,setsar=1,"
+          f"fps={out.fps},format=yuv420p")
+    cmd = [ffmpeg, "-y", "-v", "error", "-ss", f"{pre:.6f}", "-t", f"{rel + d + 0.5:.6f}",
            "-i", str(src), "-map", "0:v:0", "-vf", vf, "-frames:v", str(frames),
            "-c:v", "libx264", "-preset", "medium", "-crf", str(out.crf)]
     if info.audio is not None:
-        af = (f"aresample=48000,afade=t=in:d={AUDIO_FADE_S},"
-              f"afade=t=out:st={max(0.0, d - AUDIO_FADE_S):.3f}:d={AUDIO_FADE_S}")
+        af = (f"atrim=start={rel:.6f}:duration={d:.6f},asetpts=PTS-STARTPTS,aresample=48000,"
+              f"afade=t=in:d={AUDIO_FADE_S},afade=t=out:st={max(0.0, d - AUDIO_FADE_S):.6f}:d={AUDIO_FADE_S}")
         cmd += ["-map", "0:a:0", "-af", af, "-c:a", "pcm_s16le", "-ac", "2"]
     cmd += ["-t", f"{d:.6f}", str(dst)]
     return cmd
@@ -69,7 +85,7 @@ def segment_command(seg: Segment, info: MediaInfo, out: OutputSettings, src: Pat
 
 def segment_key(seg: Segment, info: MediaInfo, out: OutputSettings) -> str:
     """Stable id for a rendered segment, so unchanged segments can be reused between edits."""
-    raw = f"{info.path}|{seg.src_in:.3f}|{seg.src_out:.3f}|{seg.zoom}|{seg.focus_x}|{seg.focus_y}|" \
+    raw = f"v2|{info.path}|{seg.src_in:.3f}|{seg.src_out:.3f}|{seg.zoom}|{seg.focus_x}|{seg.focus_y}|" \
           f"{out.width}x{out.height}@{out.fps}|crf{out.crf}"
     return hashlib.sha1(raw.encode()).hexdigest()[:16]
 

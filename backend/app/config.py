@@ -3,6 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +15,8 @@ class Settings(BaseSettings):
     ffprobe_path: str = "ffprobe"
     ffmpeg_path: str = "ffmpeg"
     cors_origins: list[str] = ["http://localhost:3000"]
+    # Read from ANTHROPIC_API_KEY (environment or backend/.env). Optional.
+    anthropic_api_key: str | None = Field(None, validation_alias="ANTHROPIC_API_KEY")
 
     # Containers we accept on import. Checked by extension first, then confirmed by ffprobe.
     allowed_extensions: set[str] = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".mxf"}

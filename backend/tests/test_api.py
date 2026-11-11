@@ -100,3 +100,28 @@ def test_render_rejects_invalid_plan(client, tmp_path):
 
 def test_export_name_is_restricted(client):
     assert client.get("/api/media/0123456789abcdef0123456789abcdef/exports/..%2finfo.json").status_code == 404
+
+
+@needs_ffmpeg
+def test_chat_edits_plan(client, tmp_path):
+    from tests.conftest import make_talk_video
+
+    video = make_talk_video(tmp_path / "talk.mp4", width=640, height=360)
+    with video.open("rb") as f:
+        media_id = client.post("/api/media", files={"file": ("talk.mp4", f, "video/mp4")}).json()["media_id"]
+    plan = client.post(f"/api/media/{media_id}/plan", json={"aspect": "9:16"}).json()["plan"]
+    before = sum(s["src_out"] - s["src_in"] for s in plan["segments"])
+
+    r = client.post(f"/api/media/{media_id}/chat", json={"message": "cut the first 1 second", "plan": plan, "mode": "rules"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    after = sum(s["src_out"] - s["src_in"] for s in body["plan"]["segments"])
+    assert abs((before - after) - 1.0) < 0.01
+    assert body["validation"]["ok"] and body["mode"] == "rules"
+
+    r = client.post(f"/api/media/{media_id}/chat", json={"message": "make it tighter", "plan": body["plan"], "mode": "rules"})
+    assert "Re-cut the pacing" in r.json()["reply"]
+
+    r = client.post(f"/api/media/{media_id}/chat", json={"message": "cut 0 to 500", "plan": plan, "mode": "rules"})
+    assert "Couldn't do that" in r.json()["reply"]
+    assert r.json()["plan"] == plan

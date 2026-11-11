@@ -34,8 +34,17 @@ export type EditRequest = {
 
 export type Segment = { src_in: number; src_out: number; zoom: number; reason: string };
 
+export type Plan = {
+  version: string;
+  media_id: string;
+  brain: string;
+  summary: string;
+  segments: Segment[];
+  output: { aspect: Aspect; width: number | null; height: number | null; fps: number | null; crf: number; audio_bitrate_k: number };
+};
+
 export type PlanResponse = {
-  plan: { media_id: string; brain: string; summary: string; segments: Segment[] };
+  plan: Plan;
   validation: { ok: boolean; errors: string[]; warnings: string[] };
   source_duration_s: number;
 };
@@ -77,8 +86,19 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 export const planEdit = (mediaId: string, req: EditRequest) =>
   call<PlanResponse>(`/api/media/${mediaId}/plan`, { method: "POST", body: JSON.stringify(req) });
 
-export const startRender = (mediaId: string, req: EditRequest) =>
-  call<Job>(`/api/media/${mediaId}/render`, { method: "POST", body: JSON.stringify({ request: req }) });
+export const startRender = (mediaId: string, req: EditRequest, plan?: Plan) =>
+  call<Job>(`/api/media/${mediaId}/render`, { method: "POST", body: JSON.stringify({ request: req, plan }) });
+
+export type ChatResponse = {
+  reply: string;
+  changes: string[];
+  plan: Plan;
+  validation: { ok: boolean; errors: string[]; warnings: string[] };
+  mode: "rules" | "claude";
+};
+
+export const sendChat = (mediaId: string, message: string, plan: Plan) =>
+  call<ChatResponse>(`/api/media/${mediaId}/chat`, { method: "POST", body: JSON.stringify({ message, plan }) });
 
 export const getJob = (jobId: string) => call<Job>(`/api/jobs/${jobId}`);
 

@@ -47,9 +47,24 @@ cp .env.example .env.local  # Windows: copy .env.example .env.local
 npm run dev
 ```
 
-Open http://localhost:3000 and drop in a video. You'll see its duration, resolution, frame rate, codecs and colour tags.
+Open http://localhost:3000 and drop in a video. You'll see its duration, resolution, frame rate, codecs and colour tags. Then use **Auto edit**: pick a format, click **Preview plan** to see what will be cut, and **Edit my video** to render. The finished MP4 plays on the page and can be downloaded.
+
+Your files are stored in `backend/storage/<media id>/` (source, analysis, plans and exports).
 
 API docs are generated automatically at http://localhost:8000/docs.
+
+## API (v0.2)
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/api/health` | Checks FFmpeg/FFprobe are installed |
+| POST | `/api/media` | Upload and inspect a video |
+| GET / DELETE | `/api/media/{id}` | Read or delete an import |
+| POST | `/api/media/{id}/analyze` | Loudness and silence detection |
+| POST | `/api/media/{id}/plan` | Get a validated edit plan (nothing rendered) |
+| POST | `/api/media/{id}/render` | Render a plan in the background, returns a job |
+| GET | `/api/jobs/{job_id}` | Job status and progress |
+| GET | `/api/media/{id}/exports/{file}` | Download the finished MP4 |
 
 ## Tests
 

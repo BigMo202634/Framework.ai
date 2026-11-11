@@ -48,3 +48,55 @@ def test_import_rejects_too_large(client):
 def test_bad_media_id_is_404(client):
     assert client.get("/api/media/../../etc").status_code == 404
     assert client.get("/api/media/notanid").status_code == 404
+
+
+@needs_ffmpeg
+def test_auto_edit_end_to_end(client, tmp_path):
+    import time
+
+    from tests.conftest import make_talk_video
+
+    video = make_talk_video(tmp_path / "talk.mp4", width=640, height=360)  # small: test upload limit is 5 MB
+    with video.open("rb") as f:
+        media_id = client.post("/api/media", files={"file": ("talk.mp4", f, "video/mp4")}).json()["media_id"]
+
+    r = client.post(f"/api/media/{media_id}/analyze")
+    assert r.status_code == 200
+    assert len(r.json()["silences"]) >= 3
+
+    r = client.post(f"/api/media/{media_id}/plan", json={"aspect": "9:16"})
+    assert r.status_code == 200
+    assert r.json()["validation"]["ok"] is True
+
+    r = client.post(f"/api/media/{media_id}/render", json={"request": {"aspect": "9:16"}})
+    assert r.status_code == 202
+    job_id = r.json()["job_id"]
+    for _ in range(120):
+        job = client.get(f"/api/jobs/{job_id}").json()
+        if job["status"] in ("done", "failed"):
+            break
+        time.sleep(0.25)
+    assert job["status"] == "done", job
+    r = client.get(f"/api/media/{media_id}/exports/{job['output']}")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "video/mp4"
+    assert len(r.content) > 10_000
+
+
+def test_render_rejects_invalid_plan(client, tmp_path):
+    import shutil
+    if shutil.which("ffprobe") is None:
+        return
+    from tests.conftest import make_video
+
+    video = make_video(tmp_path / "v.mp4", seconds=2)
+    with video.open("rb") as f:
+        media_id = client.post("/api/media", files={"file": ("v.mp4", f, "video/mp4")}).json()["media_id"]
+    bad = {"media_id": media_id, "segments": [{"src_in": 0, "src_out": 50}]}
+    r = client.post(f"/api/media/{media_id}/render", json={"plan": bad})
+    assert r.status_code == 422
+    assert "ends after the source" in str(r.json())
+
+
+def test_export_name_is_restricted(client):
+    assert client.get("/api/media/0123456789abcdef0123456789abcdef/exports/..%2finfo.json").status_code == 404

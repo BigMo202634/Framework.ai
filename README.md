@@ -49,11 +49,13 @@ npm run dev
 
 Open http://localhost:3000 and drop in a video. You'll see its duration, resolution, frame rate, codecs and colour tags. Then use **Auto edit**: pick a format, click **Preview plan** to see what will be cut, and **Edit my video** to render. The finished MP4 plays on the page and can be downloaded.
 
+Then type changes into the **Editor chat**, for example "cut 0:12 to 0:18", "zoom in from 30 to 35", "make it 16:9" or "make it tighter", and render again. Without an API key the chat runs in a free mode that understands common phrasings. Add `ANTHROPIC_API_KEY=...` to `backend/.env` and restart the backend to use the Claude editor, which understands any wording.
+
 Your files are stored in `backend/storage/<media id>/` (source, analysis, plans and exports).
 
 API docs are generated automatically at http://localhost:8000/docs.
 
-## API (v0.2)
+## API (v0.3)
 
 | Method | Path | What it does |
 |---|---|---|
@@ -64,6 +66,7 @@ API docs are generated automatically at http://localhost:8000/docs.
 | POST | `/api/media/{id}/plan` | Get a validated edit plan (nothing rendered) |
 | POST | `/api/media/{id}/render` | Render a plan in the background, returns a job |
 | GET | `/api/jobs/{job_id}` | Job status and progress |
+| POST | `/api/media/{id}/chat` | Plain-English instruction in, updated plan out |
 | GET | `/api/media/{id}/exports/{file}` | Download the finished MP4 |
 
 ## Tests

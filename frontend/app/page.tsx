@@ -46,7 +46,7 @@ export default function Home() {
   return (
     <main className="mx-auto max-w-2xl px-4 py-12">
       <h1 className="text-3xl font-semibold tracking-tight">FRAMEWORK AI</h1>
-      <p className="mt-2 text-neutral-400">v0.2 · Import a talking-head video, then let the editor cut it.</p>
+      <p className="mt-2 text-neutral-400">v0.3 · Import a talking-head video, let the editor cut it, then tell it what to change.</p>
 
       <label className="mt-8 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-neutral-700 px-6 py-12 text-center hover:border-neutral-500">
         <span className="text-lg">Drop a video here or click to choose</span>

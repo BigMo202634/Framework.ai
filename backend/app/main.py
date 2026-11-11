@@ -15,9 +15,11 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.brain.base import EditRequest
+from app.brain.chat import get_chat
 from app.brain.mock import MockEditorBrain
 from app.config import Settings, get_settings
 from app.engine.audio import AudioAnalysis, AudioError, analyze
+from app.engine.commands import Command, CommandError, apply
 from app.engine.plan import EditPlan
 from app.engine.render import render
 from app.engine.validate import ValidationResult, validate_plan
@@ -220,8 +222,9 @@ def render_edit(media_id: str, body: RenderRequest = RenderRequest(),
         name = f"edit_{job.job_id[:8]}.mp4"
         storage.save_json(media_id, f"plan_{job.job_id[:8]}.json", plan.model_dump())
         update(0.0, f"Rendering {len(plan.segments)} cuts")
+        # Segments are cached, so after a chat edit only the changed parts are re-rendered.
         render(plan, info, src, folder / name, settings.ffmpeg_path,
-               on_progress=lambda p: update(p, f"Rendering {int(p * 100)}%"))
+               on_progress=lambda p: update(p, f"Rendering {int(p * 100)}%"), cache_dir=folder / "cache")
         return name
 
     return jobs.submit(media_id, "render", work)
@@ -246,3 +249,69 @@ def download_export(media_id: str, name: str, storage: LocalStorage = Depends(ge
     if not path.is_file():
         raise HTTPException(404, "Export not found")
     return FileResponse(path, media_type="video/mp4", filename=name)
+
+
+# ---------------------------------------------------------------- timeline chat
+
+class ChatRequest(BaseModel):
+    message: str
+    plan: EditPlan
+    mode: str | None = None  # "rules" forces the free mode even when an API key is set
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    changes: list[str]
+    commands: list[Command]
+    plan: EditPlan
+    validation: ValidationResult
+    mode: str
+
+
+@app.post("/api/media/{media_id}/chat", response_model=ChatResponse)
+def chat_edit(media_id: str, body: ChatRequest, settings: Settings = Depends(get_settings),
+              storage: LocalStorage = Depends(get_storage),
+              brain: MockEditorBrain = Depends(get_brain)) -> ChatResponse:
+    """Plain-English instruction in, updated (validated) edit plan out. Nothing is rendered."""
+    info = _load_info(storage, media_id)
+    if body.plan.media_id != media_id:
+        raise HTTPException(422, "Plan belongs to a different video")
+    chat = get_chat(body.mode, settings.anthropic_api_key)
+    try:
+        result = chat.interpret(body.message, body.plan)
+    except Exception as exc:  # network/API problems shouldn't kill the editor
+        log.warning("Chat failed: %s", exc)
+        raise HTTPException(502, f"The AI editor is unavailable right now: {exc}") from exc
+
+    def replan(padding_s, keep_pauses_under_s, remove_silences, punch_ins):
+        req = EditRequest(aspect=body.plan.output.aspect, punch_ins=punch_ins)
+        if padding_s is not None:
+            req.padding_s = max(0.0, min(1.0, padding_s))
+        if keep_pauses_under_s is not None:
+            req.keep_pauses_under_s = max(0.0, min(3.0, keep_pauses_under_s))
+        if remove_silences is not None:
+            req.remove_silences = remove_silences
+        return brain.plan(media_id, info, _analysis(storage, settings, media_id, info), req)
+
+    plan, changes, problems = body.plan, [], []
+    for cmd in result.commands:
+        try:
+            plan, change = apply(plan, cmd, replan)
+            changes.append(change)
+        except CommandError as exc:
+            problems.append(str(exc))
+    if changes:
+        plan = plan.model_copy(update={"brain": f"{plan.brain.split('+')[0]}+chat"})
+    validation = validate_plan(plan, info, media_id)
+    if not validation.ok:  # never hand back a plan the renderer would reject
+        problems += validation.errors
+        plan, changes = body.plan, []
+        validation = validate_plan(plan, info, media_id)
+
+    reply = result.reply
+    if changes:
+        reply = (reply + " " if chat.name == "claude" else "") + "; ".join(changes) + "."
+    if problems:
+        reply += " " + " ".join(f"Couldn't do that: {p}." for p in problems)
+    return ChatResponse(reply=reply.strip(), changes=changes, commands=result.commands, plan=plan,
+                        validation=validation, mode=chat.name)

@@ -57,6 +57,21 @@ class RemovedPart(BaseModel):
     reason: str = ""
 
 
+CaptionStyle = Literal["pop", "karaoke", "clean", "boxed"]
+
+
+class CaptionSettings(BaseModel):
+    """Animated captions burned into the export. Times come from the transcript, mapped onto the edit."""
+    enabled: bool = False
+    style: CaptionStyle = "pop"
+    position: float = Field(0.70, ge=0.05, le=0.95)  # vertical centre of the caption, 0 = top
+    size: float = Field(1.0, ge=0.5, le=2.0)  # 1.0 = about 6% of the frame height
+    words_per_line: int = Field(3, ge=1, le=8)
+    uppercase: bool = True
+    color: str = "#FFFFFF"
+    highlight: str = "#FFD400"  # the word being spoken
+
+
 class EditPlan(BaseModel):
     version: Literal["0.1"] = "0.1"
     media_id: str
@@ -66,6 +81,7 @@ class EditPlan(BaseModel):
     segments: list[Segment]
     removed: list[RemovedPart] = []
     output: OutputSettings = OutputSettings()
+    captions: CaptionSettings = CaptionSettings()
 
     @property
     def duration(self) -> float:

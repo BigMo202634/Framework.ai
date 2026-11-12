@@ -43,6 +43,21 @@ export type RemovedPart = {
   reason: string;
 };
 
+export type CaptionStyle = "pop" | "karaoke" | "clean" | "boxed";
+
+export type CaptionSettings = {
+  enabled: boolean;
+  style: CaptionStyle;
+  position: number;
+  size: number;
+  words_per_line: number;
+  uppercase: boolean;
+  color: string;
+  highlight: string;
+};
+
+export type CapLine = { start: number; end: number; words: { text: string; start: number; end: number }[] };
+
 export type Plan = {
   version: string;
   media_id: string;
@@ -51,6 +66,7 @@ export type Plan = {
   message: string;
   segments: Segment[];
   removed: RemovedPart[];
+  captions: CaptionSettings;
   output: { aspect: Aspect; width: number | null; height: number | null; fps: number | null; crf: number; audio_bitrate_k: number };
 };
 
@@ -119,6 +135,11 @@ export const getWaveform = (mediaId: string) => call<Waveform>(`/api/media/${med
 export type Word = { i: number; start: number; end: number; text: string; prob: number };
 export type Transcript = { model: string; language: string; words: Word[] };
 export const getTranscript = (mediaId: string) => call<Transcript>(`/api/media/${mediaId}/transcript`);
+
+export const getCaptions = (mediaId: string, plan: Plan) =>
+  call<CapLine[]>(`/api/media/${mediaId}/captions`, { method: "POST", body: JSON.stringify({ plan }) });
+
+export const fontUrl = (file: string) => `${API_URL}/api/fonts/${file}`;
 
 export const proxyUrl = (mediaId: string) => `${API_URL}/api/media/${mediaId}/proxy.mp4`;
 

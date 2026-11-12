@@ -23,6 +23,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
+from app.engine.captions import FONTS_DIR
 from app.engine.plan import EditPlan, OutputSettings, Segment, resolve_output
 from app.media.probe import MediaInfo
 
@@ -90,9 +91,9 @@ def segment_key(seg: Segment, info: MediaInfo, out: OutputSettings) -> str:
     return hashlib.sha1(raw.encode()).hexdigest()[:16]
 
 
-def _run(cmd: list[str]) -> None:
+def _run(cmd: list[str], cwd: Path | None = None) -> None:
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=cwd)
     except FileNotFoundError as exc:
         raise RenderError(f"'{cmd[0]}' not found. Install FFmpeg and add it to PATH.") from exc
     if result.returncode != 0:
@@ -108,8 +109,13 @@ def render(
     ffmpeg: str = "ffmpeg",
     on_progress: Callable[[float], None] | None = None,
     cache_dir: Path | None = None,
+    captions_ass: str | None = None,
 ) -> Path:
-    """Render the plan. If cache_dir is given, segments already rendered with the same settings are reused."""
+    """Render the plan. If cache_dir is given, segments already rendered with the same settings are reused.
+
+    captions_ass: an ASS subtitle script (see app.engine.captions) to burn into the picture. That
+    needs one extra encode of the whole video, done after the segments are joined.
+    """
     out = resolve_output(plan.output, info)
     total = max(0.001, plan.duration)
     done = 0.0
@@ -136,8 +142,22 @@ def render(
                "-map", "0:v:0", "-c:v", "copy"]
         if info.audio is not None:
             cmd += ["-map", "0:a:0", "-c:a", "aac", "-b:a", f"{out.audio_bitrate_k}k"]
-        cmd += ["-movflags", "+faststart", str(dst)]
+        joined = tmp / "joined.mp4" if captions_ass else dst
+        cmd += ["-movflags", "+faststart", str(joined)]
         _run(cmd)
+
+        if captions_ass:
+            if on_progress:
+                on_progress(0.96)
+            # Run inside tmp with relative paths: FFmpeg filter arguments treat ':' and '\' as
+            # syntax, which breaks on Windows paths like C:\Users\...
+            (tmp / "captions.ass").write_text(captions_ass, encoding="utf-8")
+            fonts = tmp / "fonts"
+            shutil.copytree(FONTS_DIR, fonts)
+            _run([ffmpeg, "-y", "-v", "error", "-i", "joined.mp4", "-map", "0:v:0", "-map", "0:a?",
+                  "-vf", "ass=captions.ass:fontsdir=fonts", "-c:v", "libx264", "-preset", "medium",
+                  "-crf", str(out.crf), "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart",
+                  str(dst.resolve())], cwd=tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     if on_progress:

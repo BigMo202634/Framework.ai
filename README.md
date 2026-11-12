@@ -19,11 +19,13 @@ The AI decides the edit as a validated JSON plan. FFmpeg does the actual cutting
 | Git | any | `git --version` |
 
 Installing FFmpeg:
-- **Windows (or just double-click `start.bat` after the first setup):** `winget install Gyan.FFmpeg`, then open a new terminal.
+- **Windows:** `winget install Gyan.FFmpeg`, then open a new terminal.
 - **macOS:** `brew install ffmpeg`
 - **Ubuntu:** `sudo apt install ffmpeg`
 
 ## Run it locally
+
+On Windows, after the first setup below, double-click `start.bat` in the project folder: it starts both parts and opens the browser.
 
 Backend (terminal 1):
 

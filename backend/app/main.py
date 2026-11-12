@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import threading
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Response, UploadFile
@@ -27,12 +28,13 @@ from app.engine.transcribe import Transcript, TranscribeError, transcribe
 from app.engine.validate import ValidationResult, validate_plan
 from app.jobs import Job, JobStore
 from app.media.probe import MediaInfo, ProbeError, probe
+from app.media.preview import WAVEFORM_RATE, PreviewError, make_proxy, waveform
 from app.media.storage import LocalStorage, MediaNotFound, UploadTooLarge
 
 log = logging.getLogger("framework")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title="FRAMEWORK AI", version="0.4.0")
+app = FastAPI(title="FRAMEWORK AI", version="0.5.0")
 
 _settings = get_settings()
 app.add_middleware(
@@ -127,7 +129,17 @@ def import_media(
     storage.save_info(media_id, info, original_name)
     log.info("Imported %s as %s (%.1fs, %dx%d)", original_name, media_id, info.duration_s,
              info.display_width, info.display_height)
+    if settings.make_proxies:
+        # Start the preview copy now, while the first edit is being made, so the editor opens faster.
+        threading.Thread(target=_warm_preview, args=(storage, settings, media_id, info), daemon=True).start()
     return _summary(media_id, original_name, info)
+
+
+def _warm_preview(storage: LocalStorage, settings: Settings, media_id: str, info: MediaInfo) -> None:
+    try:
+        make_proxy(storage.source_path(media_id), storage.folder(media_id), info, settings.ffmpeg_path)
+    except Exception as exc:  # the editor will retry and show the error itself
+        log.warning("Preview copy failed for %s: %s", media_id, exc)
 
 
 @app.get("/api/media/{media_id}", response_model=MediaSummary)
@@ -235,6 +247,43 @@ def get_transcript(media_id: str, settings: Settings = Depends(get_settings),
         raise HTTPException(422, str(exc)) from exc
     if result is None:
         raise HTTPException(422, "This video has no audio track to transcribe")
+    return result
+
+
+# ---------------------------------------------------------------- editor media
+
+@app.get("/api/media/{media_id}/proxy.mp4")
+def get_proxy(media_id: str, settings: Settings = Depends(get_settings),
+              storage: LocalStorage = Depends(get_storage)) -> FileResponse:
+    """Small H.264 copy of the source for previewing and scrubbing (made on first request)."""
+    info = _load_info(storage, media_id)
+    try:
+        path = make_proxy(storage.source_path(media_id), storage.folder(media_id), info, settings.ffmpeg_path)
+    except PreviewError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return FileResponse(path, media_type="video/mp4")
+
+
+class Waveform(BaseModel):
+    rate: int
+    peaks: list[int]
+
+
+@app.get("/api/media/{media_id}/waveform", response_model=Waveform)
+def get_waveform(media_id: str, settings: Settings = Depends(get_settings),
+                 storage: LocalStorage = Depends(get_storage)) -> Waveform:
+    """Audio peaks (0-100), WAVEFORM_RATE per second of source, for drawing the timeline."""
+    info = _load_info(storage, media_id)
+    if info.audio is None:
+        return Waveform(rate=WAVEFORM_RATE, peaks=[])
+    cached = storage.load_json(media_id, "waveform.json")
+    if cached and cached.get("rate") == WAVEFORM_RATE:
+        return Waveform(**cached)
+    try:
+        result = Waveform(rate=WAVEFORM_RATE, peaks=waveform(storage.source_path(media_id), settings.ffmpeg_path))
+    except PreviewError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    storage.save_json(media_id, "waveform.json", result.model_dump())
     return result
 
 

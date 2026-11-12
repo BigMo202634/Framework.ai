@@ -165,3 +165,23 @@ def test_creative_cuts_use_the_transcript(client, tmp_path, monkeypatch):
     r = client.post(f"/api/media/{media_id}/chat", json={"message": "keep the ums", "plan": plan, "mode": "rules"})
     body = r.json()
     assert body["changes"] and body["plan"]["removed"] == []
+
+
+def test_proxy_and_waveform(client, tmp_path):
+    from tests.conftest import make_talk_video
+
+    video = make_talk_video(tmp_path / "talk.mp4", width=640, height=360)
+    with video.open("rb") as f:
+        media_id = client.post("/api/media", files={"file": ("talk.mp4", f, "video/mp4")}).json()["media_id"]
+
+    r = client.get(f"/api/media/{media_id}/waveform")
+    assert r.status_code == 200
+    w = r.json()
+    assert w["rate"] == 50 and 440 <= len(w["peaks"]) <= 460  # 9 s of audio
+    # Tone for 2 s, silence for 1 s: loud at 1 s, quiet at 2.5 s.
+    assert w["peaks"][50] > 50 and w["peaks"][125] < 5
+
+    r = client.get(f"/api/media/{media_id}/proxy.mp4")
+    assert r.status_code == 200 and r.headers["content-type"] == "video/mp4"
+    r = client.get(f"/api/media/{media_id}/proxy.mp4", headers={"Range": "bytes=0-99"})
+    assert r.status_code == 206 and len(r.content) == 100  # seekable in the browser

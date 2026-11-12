@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     # Speech-to-text model for the creative director: tiny, base, small (default), medium, large-v3.
     # Bigger catches more "um"s but is slower. Empty string turns transcription off.
     whisper_model: str = "small"
+    # Make the small preview copy for the editor right after upload.
+    make_proxies: bool = True
     cors_origins: list[str] = ["http://localhost:3000"]
     # Read from ANTHROPIC_API_KEY (environment or backend/.env). Optional.
     anthropic_api_key: str | None = Field(None, validation_alias="ANTHROPIC_API_KEY")

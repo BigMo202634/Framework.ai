@@ -18,9 +18,10 @@ type Props = {
   sourceRatio: number;
   onTime: (t: number) => void;
   onPlayingChange: (playing: boolean) => void;
+  children?: React.ReactNode; // drawn on top of the frame (captions)
 };
 
-const Preview = forwardRef<PreviewHandle, Props>(function Preview({ src, plan, sourceRatio, onTime, onPlayingChange }, ref) {
+const Preview = forwardRef<PreviewHandle, Props>(function Preview({ src, plan, sourceRatio, onTime, onPlayingChange, children }, ref) {
   const video = useRef<HTMLVideoElement | null>(null);
   const seg = useRef(0);
   const planRef = useRef(plan);
@@ -112,6 +113,7 @@ const Preview = forwardRef<PreviewHandle, Props>(function Preview({ src, plan, s
             Preparing a light preview copy of your video…
           </div>
         )}
+        {children}
         {zoom > 1 && <span className="absolute right-2 top-2 rounded bg-sky-500/90 px-1.5 py-0.5 text-[10px] font-semibold text-black">PUNCH-IN {zoom.toFixed(2)}×</span>}
       </div>
     </div>

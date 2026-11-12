@@ -118,3 +118,24 @@ def test_claude_chat_request_and_parsing_without_network():
     assert seen["body"]["fallbacks"] == "default"
     assert "server-side-fallback-2026-07-01" in seen["beta"]
     assert "Request: cut the first two seconds" in seen["body"]["messages"][0]["content"]
+
+
+@pytest.mark.parametrize("msg,enabled,style", [
+    ("add captions", True, None),
+    ("add karaoke captions", True, "karaoke"),
+    ("make the subtitles boxed", True, "boxed"),
+    ("remove the captions", False, None),
+])
+def test_rule_chat_captions(msg, enabled, style):
+    result = RuleChat().interpret(msg, plan3())
+    (cmd,) = [c for c in result.commands if c.op == "captions"]
+    assert cmd.enabled is enabled and cmd.caption_style == style
+
+
+def test_captions_command_and_replan_keeps_them():
+    from app.engine.commands import Command, apply
+
+    plan, msg = apply(plan3(), Command(op="captions", enabled=True, caption_style="karaoke"))
+    assert plan.captions.enabled and plan.captions.style == "karaoke" and "karaoke" in msg
+    replanned, _ = apply(plan, Command(op="replan", padding_s=0.1), replan=lambda cmd, punch: plan3())
+    assert replanned.captions.style == "karaoke"

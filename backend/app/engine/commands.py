@@ -11,10 +11,10 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.engine.plan import Aspect, EditPlan, Segment
+from app.engine.plan import CaptionStyle, Aspect, EditPlan, Segment
 from app.engine.validate import MIN_SEGMENT_S
 
-Op = Literal["set_aspect", "cut", "zoom", "punch_ins", "replan"]
+Op = Literal["set_aspect", "cut", "zoom", "punch_ins", "replan", "captions"]
 
 
 class Command(BaseModel):
@@ -28,7 +28,9 @@ class Command(BaseModel):
     padding_s: float | None = None
     keep_pauses_under_s: float | None = None
     remove_silences: bool | None = None
-    creative_cuts: bool | None = None  # cut fillers, stutters, retakes and repeats from the transcript
+    creative_cuts: bool | None = None
+    # captions settings
+    caption_style: CaptionStyle | None = None  # cut fillers, stutters, retakes and repeats from the transcript
 
 
 class CommandError(ValueError):
@@ -117,6 +119,15 @@ def apply(plan: EditPlan, cmd: Command, replan=None) -> tuple[EditPlan, str]:
         what = "Removed the zoom" if z == 1.0 else f"Zoomed in {int(round((z - 1) * 100))}%"
         return plan, f"{what} from {start:.1f}s to {end:.1f}s"
 
+    if cmd.op == "captions":
+        enabled = True if cmd.enabled is None else cmd.enabled
+        plan.captions.enabled = enabled
+        if cmd.caption_style:
+            plan.captions.style = cmd.caption_style
+        if not enabled:
+            return plan, "Turned captions off"
+        return plan, f"Captions on, {plan.captions.style} style"
+
     if cmd.op == "punch_ins":
         enabled = True if cmd.enabled is None else cmd.enabled
         for i, seg in enumerate(plan.segments):
@@ -129,6 +140,7 @@ def apply(plan: EditPlan, cmd: Command, replan=None) -> tuple[EditPlan, str]:
         punch = any(s.zoom > 1.0 for s in plan.segments)
         new = replan(cmd, punch)
         new.output = plan.output
+        new.captions = plan.captions
         what = "Re-cut the pacing"
         if cmd.creative_cuts is not None:
             what = ("Cut the fillers, stutters and retakes" if cmd.creative_cuts

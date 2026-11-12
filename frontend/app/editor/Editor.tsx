@@ -7,12 +7,13 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  exportUrl, getJob, getTranscript, getWaveform, planEdit, proxyUrl, sendChat, startRender,
-  type Aspect, type EditRequest, type Job, type MediaSummary, type Plan, type Waveform, type Word,
+  exportUrl, getCaptions, getJob, getTranscript, getWaveform, planEdit, proxyUrl, sendChat, startRender,
+  type Aspect, type CapLine, type CaptionSettings, type CaptionStyle, type EditRequest, type Job, type MediaSummary, type Plan, type Waveform, type Word,
 } from "@/lib/api";
 import {
   MAX_ZOOM, planDur, remove, restore, segAt, segDur, setClip, short, split, timecode, togglePunch, trim,
 } from "@/lib/timeline";
+import CaptionOverlay from "./CaptionOverlay";
 import Preview, { type PreviewHandle } from "./Preview";
 import Timeline from "./Timeline";
 
@@ -29,6 +30,21 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 type Msg = { from: "you" | "editor"; text: string };
+
+const DEFAULT_CAPTIONS: CaptionSettings = {
+  enabled: false, style: "pop", position: 0.7, size: 1, words_per_line: 3, uppercase: true, color: "#FFFFFF", highlight: "#FFD400",
+};
+const CAPTION_STYLES: { value: CaptionStyle; label: string; hint: string }[] = [
+  { value: "pop", label: "Pop", hint: "Word pops in colour" },
+  { value: "karaoke", label: "Karaoke", hint: "Word lights up" },
+  { value: "boxed", label: "Boxed", hint: "Text on a dark box" },
+  { value: "clean", label: "Clean", hint: "Plain white lines" },
+];
+// Output frame size per format (same as the backend), used to size the caption preview.
+const FRAME: Record<Aspect, [number, number] | null> = { "9:16": [1080, 1920], "16:9": [1920, 1080], "1:1": [1080, 1080], "4:5": [1080, 1350], source: null };
+
+/** Older saved plans have no captions block. */
+const normalize = (p: Plan): Plan => ({ ...p, removed: p.removed ?? [], captions: { ...DEFAULT_CAPTIONS, ...(p.captions ?? {}) } });
 
 const store = {
   get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
@@ -53,7 +69,8 @@ export default function Editor({ media }: { media: MediaSummary }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [draft, setDraft] = useState("");
   const [mode, setMode] = useState<string | null>(null);
-  const [leftTab, setLeftTab] = useState<"clip" | "cuts">("cuts");
+  const [leftTab, setLeftTab] = useState<"clip" | "cuts" | "captions">("cuts");
+  const [capLines, setCapLines] = useState<CapLine[]>([]);
   const preview = useRef<PreviewHandle | null>(null);
   const planRef = useRef<Plan | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -90,6 +107,25 @@ export default function Editor({ media }: { media: MediaSummary }) {
 
   useEffect(() => { if (plan) store.set(key, JSON.stringify(plan)); }, [plan, key]);
   useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
+
+  // Caption lines depend on the cuts and words-per-line only; fetch them shortly after edits settle.
+  const capKey = plan?.captions.enabled
+    ? JSON.stringify([plan.segments.map((s) => [s.src_in, s.src_out]), plan.captions.words_per_line]) : "";
+  useEffect(() => {
+    if (!capKey || !planRef.current) { setCapLines([]); return; }
+    const id = setTimeout(() => {
+      if (planRef.current) getCaptions(media.media_id, planRef.current).then(setCapLines).catch((e) => fail(e));
+    }, 350);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capKey, media.media_id]);
+
+  const setCaptions = (patch: Partial<CaptionSettings>, history = true) => {
+    const cur = planRef.current;
+    if (!cur) return;
+    const next = { ...cur, captions: { ...cur.captions, ...patch } };
+    if (history) commit(next); else live(next);
+  };
   useEffect(() => { chatEnd.current?.scrollIntoView({ block: "nearest" }); }, [messages]);
 
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
@@ -105,7 +141,8 @@ export default function Editor({ media }: { media: MediaSummary }) {
     setBusy(r.creative_cuts ? "Listening to your video and making the first cut… (first time: a few minutes)" : "Making the first cut…");
     try {
       const res = await planEdit(media.media_id, r);
-      commit(res.plan);
+      // Keep the caption look the user chose when the auto edit is redone.
+      commit(normalize({ ...res.plan, captions: planRef.current?.captions ?? res.plan.captions }));
       setWarnings(res.validation.warnings);
       setSelected(null);
       setMessages((m) => [...m, { from: "editor", text: `${res.plan.summary}${res.plan.message ? ` Your message, as I heard it: ${res.plan.message}` : ""} Edit the timeline by hand, or tell me what to change.` }]);
@@ -122,7 +159,7 @@ export default function Editor({ media }: { media: MediaSummary }) {
     const saved = store.get(key);
     if (saved) {
       try {
-        const p = JSON.parse(saved) as Plan;
+        const p = normalize(JSON.parse(saved) as Plan);
         setPlanState(p);
         setReq((q) => ({ ...q, aspect: p.output.aspect }));
         setMessages([{ from: "editor", text: "Welcome back. Your last edit is restored." }]);
@@ -197,7 +234,7 @@ export default function Editor({ media }: { media: MediaSummary }) {
     try {
       const r = await sendChat(media.media_id, text, plan);
       setMode(r.mode);
-      if (r.changes.length) commit(r.plan);
+      if (r.changes.length) commit(normalize(r.plan));
       setWarnings(r.validation.warnings);
       setMessages((m) => [...m, { from: "editor", text: r.reply }]);
     } catch (e) {
@@ -287,10 +324,10 @@ export default function Editor({ media }: { media: MediaSummary }) {
       <div className="grid min-h-0 min-w-0 grid-cols-[260px_minmax(0,1fr)_320px]">
         <aside className="flex min-h-0 flex-col border-r border-white/10 bg-[#111319] text-sm">
           <div className="flex border-b border-white/10">
-            {(["cuts", "clip"] as const).map((t) => (
+            {(["cuts", "captions", "clip"] as const).map((t) => (
               <button key={t} onClick={() => setLeftTab(t)}
                 className={`flex-1 px-2 py-2 text-xs ${leftTab === t ? "border-b-2 border-violet-400 text-white" : "text-neutral-500"}`}>
-                {t === "cuts" ? `Cuts${plan?.removed.length ? ` (${plan.removed.length})` : ""}` : "Clip"}
+                {t === "cuts" ? `Cuts${plan?.removed.length ? ` (${plan.removed.length})` : ""}` : t === "captions" ? "Captions" : "Clip"}
               </button>
             ))}
           </div>
@@ -311,6 +348,50 @@ export default function Editor({ media }: { media: MediaSummary }) {
                   ))}
                 </ul>
               </>
+            )}
+            {leftTab === "captions" && plan && (
+              <div className="space-y-4 text-xs">
+                <label className="flex items-center justify-between text-sm text-white">
+                  Show captions
+                  <input type="checkbox" checked={plan.captions.enabled} onChange={(e) => setCaptions({ enabled: e.target.checked })} />
+                </label>
+                <div className={plan.captions.enabled ? "" : "pointer-events-none opacity-40"}>
+                  <div className="grid grid-cols-2 gap-2">
+                    {CAPTION_STYLES.map((st) => (
+                      <button key={st.value} onClick={() => setCaptions({ style: st.value })}
+                        className={`rounded border px-2 py-2 text-left ${plan.captions.style === st.value ? "border-violet-400 bg-violet-500/10" : "border-white/10 hover:bg-white/5"}`}>
+                        <span className="block font-semibold text-white">{st.label}</span>
+                        <span className="text-[10px] text-neutral-500">{st.hint}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <label className="mt-4 block">Position (up / down)
+                    <input type="range" min={0.1} max={0.92} step={0.01} value={plan.captions.position} className="w-full"
+                      onPointerDown={onTrimStart} onChange={(e) => setCaptions({ position: Number(e.target.value) }, false)} />
+                  </label>
+                  <label className="mt-2 block">Size: {Math.round(plan.captions.size * 100)}%
+                    <input type="range" min={0.5} max={2} step={0.05} value={plan.captions.size} className="w-full"
+                      onPointerDown={onTrimStart} onChange={(e) => setCaptions({ size: Number(e.target.value) }, false)} />
+                  </label>
+                  <label className="mt-2 block">Words per line: {plan.captions.words_per_line}
+                    <input type="range" min={1} max={8} step={1} value={plan.captions.words_per_line} className="w-full"
+                      onPointerDown={onTrimStart} onChange={(e) => setCaptions({ words_per_line: Number(e.target.value) }, false)} />
+                  </label>
+                  <div className="mt-3 flex items-center gap-4">
+                    <label className="flex items-center gap-2">Text
+                      <input type="color" value={plan.captions.color} onChange={(e) => setCaptions({ color: e.target.value })} />
+                    </label>
+                    <label className="flex items-center gap-2">Highlight
+                      <input type="color" value={plan.captions.highlight} onChange={(e) => setCaptions({ highlight: e.target.value })} />
+                    </label>
+                  </div>
+                  <label className="mt-3 flex items-center gap-2">
+                    <input type="checkbox" checked={plan.captions.uppercase} onChange={(e) => setCaptions({ uppercase: e.target.checked })} />
+                    ALL CAPS
+                  </label>
+                  <p className="mt-3 text-neutral-500">Captions follow your cuts automatically and are burned into the export.</p>
+                </div>
+              </div>
             )}
             {leftTab === "clip" && (
               sel && plan && selected !== null ? (
@@ -348,7 +429,13 @@ export default function Editor({ media }: { media: MediaSummary }) {
           <div className="min-h-0 flex-1">
             {plan && (
               <Preview ref={preview} src={proxyUrl(media.media_id)} plan={plan}
-                sourceRatio={media.width / Math.max(1, media.height)} onTime={setPlayhead} onPlayingChange={setPlaying} />
+                sourceRatio={media.width / Math.max(1, media.height)} onTime={setPlayhead} onPlayingChange={setPlaying}>
+                {plan.captions.enabled && capLines.length > 0 && (
+                  <CaptionOverlay lines={capLines} settings={plan.captions} time={playhead}
+                    frameW={(FRAME[plan.output.aspect] ?? [media.width, media.height])[0]}
+                    frameH={(FRAME[plan.output.aspect] ?? [media.width, media.height])[1]} />
+                )}
+              </Preview>
             )}
             {!plan && (
               <div className="flex h-full items-center justify-center text-sm text-neutral-400">{busy ?? error ?? "Loading…"}</div>

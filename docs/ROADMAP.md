@@ -7,12 +7,12 @@
 
 - [x] Creative director cuts: word-level transcription (faster-whisper, phrase by phrase so "um"s are written out), then cut fillers, stutters, false starts and lines said twice. Rhythmic repeats are kept. Claude director (with an API key) also trims off-message parts while protecting jokes, suspense, reactions and momentum. Every cut is listed in the app.
 - [x] Landing page and a horizontal, DaVinci-style editor: preview, inspector, chat, and a timeline with video, waveform and word tracks. Drag to trim (ripple), split, delete, punch-in and reframe per clip, undo/redo, put back director cuts, keyboard shortcuts, live preview without rendering (proxy video), edits saved in the browser.
+- [x] Animated captions: words mapped onto the edit, grouped into short lines, four styles (Pop, Karaoke, Boxed, Clean), position/size/colours/words per line, live preview in the editor, burned into the export with a bundled font (Inter, OFL). Chat: "add captions", "karaoke captions", "remove captions".
 
 ## Current
 - [ ] Test the Claude director live on real footage once an API key is set
 
 ## Next
-- [ ] Milestone 4: animated ASS captions with word highlighting
 - [ ] Milestone 5: face-tracked reframing and smarter punch-ins (on key words, not every cut)
 - [ ] Milestone 6: music bed with ducking under speech
 - [ ] Milestone 7: Claude Editor Brain behind the provider adapter

@@ -13,6 +13,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.brain.base import EditRequest
@@ -22,7 +23,8 @@ from app.brain.mock import MockEditorBrain
 from app.config import Settings, get_settings
 from app.engine.audio import AudioAnalysis, AudioError, analyze
 from app.engine.commands import Command, CommandError, apply
-from app.engine.plan import EditPlan
+from app.engine.captions import FONTS_DIR, CapLine, build_ass, caption_lines
+from app.engine.plan import EditPlan, resolve_output
 from app.engine.render import render
 from app.engine.transcribe import Transcript, TranscribeError, transcribe
 from app.engine.validate import ValidationResult, validate_plan
@@ -34,7 +36,7 @@ from app.media.storage import LocalStorage, MediaNotFound, UploadTooLarge
 log = logging.getLogger("framework")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title="FRAMEWORK AI", version="0.5.0")
+app = FastAPI(title="FRAMEWORK AI", version="0.6.0")
 
 _settings = get_settings()
 app.add_middleware(
@@ -88,6 +90,10 @@ def _summary(media_id: str, original_name: str, info: MediaInfo) -> MediaSummary
         has_audio=info.audio is not None,
         info=info,
     )
+
+
+# The caption font, so the editor preview uses exactly the font that gets burned in.
+app.mount("/api/fonts", StaticFiles(directory=FONTS_DIR), name="fonts")
 
 
 @app.get("/api/health")
@@ -287,6 +293,24 @@ def get_waveform(media_id: str, settings: Settings = Depends(get_settings),
     return result
 
 
+class CaptionsRequest(BaseModel):
+    plan: EditPlan
+
+
+@app.post("/api/media/{media_id}/captions", response_model=list[CapLine])
+def preview_captions(media_id: str, body: CaptionsRequest, settings: Settings = Depends(get_settings),
+                     storage: LocalStorage = Depends(get_storage)) -> list[CapLine]:
+    """Caption lines for a plan, in edited-timeline seconds, so the editor can preview them."""
+    info = _load_info(storage, media_id)
+    try:
+        transcript = _transcript(storage, settings, media_id, info)
+    except TranscribeError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if transcript is None:
+        raise HTTPException(422, "Captions need speech: this video has no audio, or transcription is off")
+    return caption_lines(transcript, body.plan)
+
+
 class PlanResponse(BaseModel):
     plan: EditPlan
     validation: ValidationResult
@@ -333,10 +357,18 @@ def render_edit(media_id: str, body: RenderRequest = RenderRequest(),
     def work(job: Job, update) -> str:
         name = f"edit_{job.job_id[:8]}.mp4"
         storage.save_json(media_id, f"plan_{job.job_id[:8]}.json", plan.model_dump())
+        ass = None
+        if plan.captions.enabled:
+            update(0.0, "Reading your words for the captions")
+            transcript = _transcript(storage, settings, media_id, info)
+            if transcript is not None:
+                out = resolve_output(plan.output, info)
+                ass = build_ass(caption_lines(transcript, plan), plan.captions, out.width, out.height)
         update(0.0, f"Rendering {len(plan.segments)} cuts")
         # Segments are cached, so after a chat edit only the changed parts are re-rendered.
         render(plan, info, src, folder / name, settings.ffmpeg_path,
-               on_progress=lambda p: update(p, f"Rendering {int(p * 100)}%"), cache_dir=folder / "cache")
+               on_progress=lambda p: update(p, "Adding captions" if p > 0.955 else f"Rendering {int(p * 100)}%"),
+               cache_dir=folder / "cache", captions_ass=ass)
         return name
 
     return jobs.submit(media_id, "render", work)

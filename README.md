@@ -19,7 +19,7 @@ The AI decides the edit as a validated JSON plan. FFmpeg does the actual cutting
 | Git | any | `git --version` |
 
 Installing FFmpeg:
-- **Windows:** `winget install Gyan.FFmpeg`, then open a new terminal.
+- **Windows (or just double-click `start.bat` after the first setup):** `winget install Gyan.FFmpeg`, then open a new terminal.
 - **macOS:** `brew install ffmpeg`
 - **Ubuntu:** `sudo apt install ffmpeg`
 
@@ -67,12 +67,12 @@ http://localhost:3000 is the landing page; **Start editing** opens the editor at
 
 - **Timeline (bottom):** V1 clips (blue = punch-in), A1 waveform, TEXT (the spoken words). Drag a clip's edge to trim; later clips move up. Ctrl+scroll or the slider zooms.
 - **Shortcuts:** Space play/pause, S split at the playhead, Delete removes the selected clip, P punch-in on/off, ←/→ one frame (Shift: one second), Ctrl+Z / Ctrl+Shift+Z undo/redo.
-- **Left panel:** "Cuts" lists what the director removed, with **Put back**; "Clip" adjusts zoom and framing of the selected clip.
+- **Left panel:** "Cuts" lists what the director removed, with **Put back**; "Captions" turns on animated captions (Pop, Karaoke, Boxed, Clean) and sets position, size, colours and words per line; "Clip" adjusts zoom and framing of the selected clip.
 - **Preview** plays the edit straight away from a light proxy copy; **Export MP4** renders the real file.
 
 Your edit is saved in the browser, and `/editor?m=<media id>` reopens it.
 
-## API (v0.5)
+## API (v0.6)
 
 | Method | Path | What it does |
 |---|---|---|
@@ -83,6 +83,7 @@ Your edit is saved in the browser, and `/editor?m=<media id>` reopens it.
 | GET | `/api/media/{id}/transcript` | Word-by-word transcript with timings |
 | GET | `/api/media/{id}/proxy.mp4` | Light preview copy for the editor |
 | GET | `/api/media/{id}/waveform` | Audio peaks for drawing the timeline |
+| POST | `/api/media/{id}/captions` | Caption lines for a plan (edited-timeline times) |
 | POST | `/api/media/{id}/plan` | Get a validated edit plan (nothing rendered) |
 | POST | `/api/media/{id}/render` | Render a plan in the background, returns a job |
 | GET | `/api/jobs/{job_id}` | Job status and progress |

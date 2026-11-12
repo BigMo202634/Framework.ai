@@ -101,12 +101,19 @@ class RuleChat:
         elif re.search(rf"(cut|remove|clean|delete|take out|get rid of)\b.*{filler}", text):
             cmds.append(Command(op="replan", creative_cuts=True))
 
+        if re.search(r"caption|subtitle|subs\b|text on screen", text):
+            style = next((st for st in ("karaoke", "pop", "clean", "boxed") if st in text), None)
+            if style is None and re.search(r"\bbox", text):
+                style = "boxed"
+            off = re.search(r"(remove|no|turn off|hide|delete|without|take off)\b.*(caption|subtitle|subs)", text)
+            cmds.append(Command(op="captions", enabled=not off, caption_style=style))
+
         if cmds:
             return ChatResult(reply="On it.", commands=cmds)
         return ChatResult(reply=(
             "I didn't catch that. In free mode I understand things like: \"cut 0:12 to 0:18\", "
             "\"remove the first 3 seconds\", \"zoom in from 10s to 15s\", \"no punch-ins\", "
-            "\"make it 16:9\", \"make it tighter\", \"keep more natural pauses\" or \"remove the ums\". "
+            "\"make it 16:9\", \"make it tighter\", \"keep more natural pauses\", \"remove the ums\" or \"add captions\". "
             "Add an Anthropic API key to talk to the Claude editor in your own words."
         ), commands=[])
 
@@ -126,9 +133,11 @@ Commands (all times are seconds on the EDITED timeline the user sees, not the or
   natural), remove_silences false keeps everything. creative_cuts true cuts fillers (um, uh), stutters,
   retakes and repeated lines found in the transcript; false puts them back. Replan resets earlier
   manual cuts, so mention that.
+- captions: enabled true/false; caption_style one of "pop" (word pops in highlight colour),
+  "karaoke" (word lights up), "clean" (plain white lines), "boxed" (text on a dark box), or null to keep.
 
 Rules: only use the commands above. Leave unused fields null. If the request needs something not
-available yet (captions, music, colour, b-roll, transitions), return no commands and say plainly it's
+available yet (music, sound effects, colour, b-roll, transitions), return no commands and say plainly it's
 coming in a later version. Keep the reply to one or two short, friendly sentences."""
 
 _SCHEMA = {
@@ -140,7 +149,7 @@ _SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "op": {"type": "string", "enum": ["set_aspect", "cut", "zoom", "punch_ins", "replan"]},
+                    "op": {"type": "string", "enum": ["set_aspect", "cut", "zoom", "punch_ins", "replan", "captions"]},
                     "aspect": {"type": ["string", "null"], "enum": ["9:16", "16:9", "1:1", "4:5", "source", None]},
                     "start": {"type": ["number", "null"]},
                     "end": {"type": ["number", "null"]},
@@ -150,9 +159,10 @@ _SCHEMA = {
                     "keep_pauses_under_s": {"type": ["number", "null"]},
                     "remove_silences": {"type": ["boolean", "null"]},
                     "creative_cuts": {"type": ["boolean", "null"]},
+                    "caption_style": {"type": ["string", "null"], "enum": ["pop", "karaoke", "clean", "boxed", None]},
                 },
                 "required": ["op", "aspect", "start", "end", "zoom", "enabled", "padding_s",
-                             "keep_pauses_under_s", "remove_silences", "creative_cuts"],
+                             "keep_pauses_under_s", "remove_silences", "creative_cuts", "caption_style"],
                 "additionalProperties": False,
             },
         },
@@ -170,7 +180,8 @@ def describe_timeline(plan: EditPlan) -> str:
         if i >= 200:
             lines.append(f"... {len(plan.segments) - 200} more parts")
             break
-    return (f"Format: {plan.output.aspect}. Edited length: {plan.duration:.2f}s in "
+    caps = f"Captions: {plan.captions.style}." if plan.captions.enabled else "Captions: off."
+    return (f"{caps} Format: {plan.output.aspect}. Edited length: {plan.duration:.2f}s in "
             f"{len(plan.segments)} parts.\n" + "\n".join(lines))
 
 

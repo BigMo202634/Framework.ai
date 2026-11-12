@@ -33,7 +33,7 @@ export type EditRequest = {
   creative_cuts: boolean;
 };
 
-export type Segment = { src_in: number; src_out: number; zoom: number; reason: string };
+export type Segment = { src_in: number; src_out: number; zoom: number; focus_x?: number; focus_y?: number; reason: string };
 
 export type RemovedPart = {
   start: number;
@@ -110,6 +110,17 @@ export type ChatResponse = {
 
 export const sendChat = (mediaId: string, message: string, plan: Plan) =>
   call<ChatResponse>(`/api/media/${mediaId}/chat`, { method: "POST", body: JSON.stringify({ message, plan }) });
+
+export const getMedia = (mediaId: string) => call<MediaSummary>(`/api/media/${mediaId}`);
+
+export type Waveform = { rate: number; peaks: number[] };
+export const getWaveform = (mediaId: string) => call<Waveform>(`/api/media/${mediaId}/waveform`);
+
+export type Word = { i: number; start: number; end: number; text: string; prob: number };
+export type Transcript = { model: string; language: string; words: Word[] };
+export const getTranscript = (mediaId: string) => call<Transcript>(`/api/media/${mediaId}/transcript`);
+
+export const proxyUrl = (mediaId: string) => `${API_URL}/api/media/${mediaId}/proxy.mp4`;
 
 export const getJob = (jobId: string) => call<Job>(`/api/jobs/${jobId}`);
 

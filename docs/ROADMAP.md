@@ -6,6 +6,7 @@
 - [x] Timeline chat: plain-English instructions (cut, zoom, format, pacing, undo) become validated timeline commands. Free rule-based mode, Claude mode with an API key. Segment cache so re-renders only redo changed parts.
 
 - [x] Creative director cuts: word-level transcription (faster-whisper, phrase by phrase so "um"s are written out), then cut fillers, stutters, false starts and lines said twice. Rhythmic repeats are kept. Claude director (with an API key) also trims off-message parts while protecting jokes, suspense, reactions and momentum. Every cut is listed in the app.
+- [x] Landing page and a horizontal, DaVinci-style editor: preview, inspector, chat, and a timeline with video, waveform and word tracks. Drag to trim (ripple), split, delete, punch-in and reframe per clip, undo/redo, put back director cuts, keyboard shortcuts, live preview without rendering (proxy video), edits saved in the browser.
 
 ## Current
 - [ ] Test the Claude director live on real footage once an API key is set

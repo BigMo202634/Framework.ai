@@ -44,7 +44,7 @@ def make_talk_video(path: Path, seconds=9, width=1920, height=1080) -> Path:
 
 @pytest.fixture
 def client(tmp_path):
-    settings = Settings(storage_dir=tmp_path / "storage", max_upload_mb=5, whisper_model="")
+    settings = Settings(storage_dir=tmp_path / "storage", max_upload_mb=5, whisper_model="", make_proxies=False)
     app.dependency_overrides[get_settings] = lambda: settings
     yield TestClient(app)
     app.dependency_overrides.clear()

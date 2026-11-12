@@ -61,7 +61,18 @@ API docs are generated automatically at http://localhost:8000/docs.
 
 With an API key the Claude director also works out your message and trims parts that don't serve it, but never jokes, suspense, reactions or lines that build momentum. Say "keep the ums" or "remove the ums" in the chat to switch it. Set `FRAMEWORK_WHISPER_MODEL=medium` in `backend/.env` for a bigger model, or leave it empty to turn transcription off.
 
-## API (v0.4)
+### The editor
+
+http://localhost:3000 is the landing page; **Start editing** opens the editor at `/editor`. After upload the first cut is made automatically, then:
+
+- **Timeline (bottom):** V1 clips (blue = punch-in), A1 waveform, TEXT (the spoken words). Drag a clip's edge to trim; later clips move up. Ctrl+scroll or the slider zooms.
+- **Shortcuts:** Space play/pause, S split at the playhead, Delete removes the selected clip, P punch-in on/off, ←/→ one frame (Shift: one second), Ctrl+Z / Ctrl+Shift+Z undo/redo.
+- **Left panel:** "Cuts" lists what the director removed, with **Put back**; "Clip" adjusts zoom and framing of the selected clip.
+- **Preview** plays the edit straight away from a light proxy copy; **Export MP4** renders the real file.
+
+Your edit is saved in the browser, and `/editor?m=<media id>` reopens it.
+
+## API (v0.5)
 
 | Method | Path | What it does |
 |---|---|---|
@@ -70,6 +81,8 @@ With an API key the Claude director also works out your message and trims parts 
 | GET / DELETE | `/api/media/{id}` | Read or delete an import |
 | POST | `/api/media/{id}/analyze` | Loudness and silence detection |
 | GET | `/api/media/{id}/transcript` | Word-by-word transcript with timings |
+| GET | `/api/media/{id}/proxy.mp4` | Light preview copy for the editor |
+| GET | `/api/media/{id}/waveform` | Audio peaks for drawing the timeline |
 | POST | `/api/media/{id}/plan` | Get a validated edit plan (nothing rendered) |
 | POST | `/api/media/{id}/render` | Render a plan in the background, returns a job |
 | GET | `/api/jobs/{job_id}` | Job status and progress |

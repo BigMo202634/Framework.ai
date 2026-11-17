@@ -24,6 +24,7 @@ from app.config import Settings, get_settings
 from app.engine.audio import AudioAnalysis, AudioError, analyze
 from app.engine.commands import Command, CommandError, apply
 from app.engine.captions import FONTS_DIR, CapLine, build_ass, caption_lines
+from app.engine.interchange import to_otio
 from app.engine.plan import EditPlan, resolve_output
 from app.engine.render import render
 from app.engine.transcribe import Transcript, TranscribeError, transcribe
@@ -36,7 +37,7 @@ from app.media.storage import LocalStorage, MediaNotFound, UploadTooLarge
 log = logging.getLogger("framework")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title="FRAMEWORK AI", version="0.6.0")
+app = FastAPI(title="FRAMEWORK AI", version="0.7.0")
 
 _settings = get_settings()
 app.add_middleware(
@@ -309,6 +310,41 @@ def preview_captions(media_id: str, body: CaptionsRequest, settings: Settings = 
     if transcript is None:
         raise HTTPException(422, "Captions need speech: this video has no audio, or transcription is off")
     return caption_lines(transcript, body.plan)
+
+
+class TimelineRequest(BaseModel):
+    plan: EditPlan
+
+
+@app.post("/api/media/{media_id}/timeline.otio")
+def export_timeline(media_id: str, body: TimelineRequest,
+                    storage: LocalStorage = Depends(get_storage)) -> FileResponse:
+    """Download the current edit as an OpenTimelineIO timeline for a professional NLE."""
+    info = _load_info(storage, media_id)
+    if body.plan.media_id != media_id:
+        raise HTTPException(422, "Plan belongs to a different video")
+    validation = validate_plan(body.plan, info, media_id)
+    if not validation.ok:
+        raise HTTPException(422, {"message": "The edit plan is not valid", "errors": validation.errors})
+
+    source = storage.source_path(media_id)
+    saved = storage.load_info(media_id)
+    rate = info.video.fps if info.video and info.video.fps > 0 else 30.0
+    timeline = to_otio(
+        body.plan,
+        source,
+        source_duration=info.duration_s,
+        rate=rate,
+        name=f"{saved['original_name']} - FRAMEWORK AI edit",
+        has_audio=info.audio is not None,
+    )
+    storage.save_json(media_id, "timeline.otio", timeline)
+    filename = f"framework_{media_id[:8]}.otio"
+    return FileResponse(
+        storage.folder(media_id) / "timeline.otio",
+        media_type="application/vnd.otio+json",
+        filename=filename,
+    )
 
 
 class PlanResponse(BaseModel):

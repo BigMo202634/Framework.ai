@@ -17,3 +17,4 @@ backend/storage/
 *.mp4
 *.mov
 !backend/tests/fixtures/*.mp4
+*.tsbuildinfo

@@ -21,7 +21,7 @@ The Editor Brain (Claude, or a mock) never touches pixels. It writes an edit pla
 | 6 | Provider adapters for every AI service | Swap Claude / OpenAI / local models without touching the pipeline. Mock providers allow ₦0 development. |
 | 7 | Local file storage behind one class | Swapped for Cloudflare R2 in production without touching callers. |
 | 8 | One command layer for app, API and MCP | The same edit commands drive the UI, the REST API and an MCP server, so Claude can operate the timeline. |
-| 9 | OpenTimelineIO export (planned) | Videographers can open the AI's edit in DaVinci Resolve or Premiere and finish it there. |
+| 9 | OpenTimelineIO export | Videographers can open the AI's exact cuts in DaVinci Resolve, Premiere (with an OTIO adapter), or another OTIO-aware NLE and finish there. FRAMEWORK AI metadata keeps the reason, zoom and focus point for every segment. |
 | 10 | Log footage: user picks camera profile, official conversion LUT, then a creative look LUT (planned) | Matches the DaVinci workflow; conversion is always technically correct. |
 | 11 | Claude Opus 5.5 as the default Editor Brain | Strong at multi-step planning, half the price of Fable 5.2. Re-evaluate on the hardest jobs. |
 

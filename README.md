@@ -74,7 +74,7 @@ http://localhost:3000 is the landing page; **Start editing** opens the editor at
 
 Your edit is saved in the browser, and `/editor?m=<media id>` reopens it.
 
-## API (v0.6)
+## API (v0.7)
 
 | Method | Path | What it does |
 |---|---|---|
@@ -86,6 +86,7 @@ Your edit is saved in the browser, and `/editor?m=<media id>` reopens it.
 | GET | `/api/media/{id}/proxy.mp4` | Light preview copy for the editor |
 | GET | `/api/media/{id}/waveform` | Audio peaks for drawing the timeline |
 | POST | `/api/media/{id}/captions` | Caption lines for a plan (edited-timeline times) |
+| POST | `/api/media/{id}/timeline.otio` | Download the edit for DaVinci Resolve, Premiere, or another OTIO-aware NLE |
 | POST | `/api/media/{id}/plan` | Get a validated edit plan (nothing rendered) |
 | POST | `/api/media/{id}/render` | Render a plan in the background, returns a job |
 | GET | `/api/jobs/{job_id}` | Job status and progress |
